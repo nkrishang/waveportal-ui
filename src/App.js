@@ -123,7 +123,7 @@ function ContractComponent() {
 
       try {
 
-        const tx = await waveportalContract.connect(library.getSigner(account)).waveAtMe(waveMessage)
+        const tx = await waveportalContract.connect(library.getSigner(account)).waveAtMe(waveMessage, { gasLimit: 100000 })
         window.alert(`You can view your transaction at https://rinkeby.etherscan.io/tx/${tx.hash}`)
 
         await tx.wait()
