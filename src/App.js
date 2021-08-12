@@ -1,30 +1,12 @@
 import * as React from "react";
-import dotenv from 'dotenv';
+import { ethers } from "ethers";
+import dotenv from 'dotenv'
 
-import { useWeb3React, Web3ReactProvider } from "@web3-react/core";
-import { Web3Provider } from "@ethersproject/providers";
+import abi from "./utils/WavePortal.json"
 
-import ConnectButton from "./components/ConnectButton";
 import { Spinner } from "./components/Spinner";
 
-import { waveportalContract, externalProvider } from "./utils/contract";
-import { ethers } from "ethers";
-
 dotenv.config()
-
-function getLibrary(provider) {
-  const library = new Web3Provider(provider);
-  library.pollingInterval = 8000;
-  return library;
-}
-
-export default function App() {
-  return (
-    <Web3ReactProvider getLibrary={getLibrary}>
-      <ContractComponent />
-    </Web3ReactProvider>
-  );
-}
 
 function WaveLog({waver, timestamp, message}) {
   return (
@@ -51,94 +33,167 @@ function WaveLog({waver, timestamp, message}) {
         <p className="text-xl font-bold">
           Message
         </p>
-        <a className="text-lg p-2" href={`https://rinkeby.etherscan.io/address/${waver}`} target="_blank" rel="noopener noreferrer">
+        <p className="text-lg p-2">
           {message.length > 20 ? message.slice(0, 20) + "..." : message}
-        </a>
+        </p>
       </div>
     </div>
   )
 }
 
-function ContractComponent() {
-
-  const context = useWeb3React()
-  const { library, account, active } = context;
+export default function App() {
 
   // User input
   const [waveMessage, setWaveMessage] = React.useState("");
   
   // State updated by listeners
+  const [currentAccount, setCurrentAccount] = React.useState('');
   const [allWaves, setAllWaves] = React.useState([]);
-
   const [loading, setLoading] = React.useState(false)
 
+  // Contract variables
+  const contractAddress = "0xd98840ecb01bdF2520B3418F2409709b6336b579"
+  const contractABI = abi;
+
+  async function getAllWaves() {
+
+    const externalProvider = new ethers.providers.JsonRpcProvider(
+      `https://eth-rinkeby.alchemyapi.io/v2/${process.env.REACT_APP_ALCHEMY_KEY}`,
+      "rinkeby"
+    );
+    const waveportalContract = new ethers.Contract(contractAddress, contractABI, externalProvider);
+    
+
+    const filter = waveportalContract.filters.NewWave()
+    const startBlock = 9074182; // Contract creation block.
+    const endBlock = await externalProvider.getBlockNumber();
+    
+    console.log("hllo", endBlock)
+
+    const queryResult = await waveportalContract.queryFilter(filter, startBlock, endBlock);
+    
+    const wavesUptilNow = queryResult.map(matchedEvent => {
+      return (
+        {
+          waver: matchedEvent.args[0],
+          timestamp: matchedEvent.args[1],
+          message: matchedEvent.args[2]
+        }
+      )        
+    })
+
+    console.log(queryResult)
+
+    setAllWaves(wavesUptilNow.reverse())
+  }
+
+  // Get data about all waves that have come before.
   React.useEffect(() => {
-
-    async function getAllWaves() {
-      // Write query logic -> populate state vars on init.
-      const filter = waveportalContract.filters.NewWave()
-      const startBlock = 9074182;
-      const endBlock = await externalProvider.getBlockNumber();
-
-      const queryResult = await waveportalContract.queryFilter(filter, startBlock, endBlock);
-      console.log(queryResult)
-      const wavesUptilNow = queryResult.map(matchedEvent => {
-        return (
-          {
-            waver: matchedEvent.args[0],
-            timestamp: matchedEvent.args[1],
-            message: matchedEvent.args[2]
-          }
-        )        
-      })
-
-      console.log("hello", wavesUptilNow)
-
-      setAllWaves(wavesUptilNow.reverse())
-    }
-
     getAllWaves()
   }, [])
 
-  // Listen to `NewWave` and `PrizeWon`.
+  // Initialize listeners and check if already connected to Metamask.
   React.useEffect(() => {
 
-    waveportalContract.on("NewWave", (waver, timestamp, message) => {
-      setAllWaves([{waver, timestamp, message}, ...allWaves]);
-    })
+    if(typeof window.ethereum !== undefined) {
 
-    waveportalContract.on("PrizeWon", (winner, prizeAmount) => {
-      if(winner == account) {
-        const amt = ethers.utils.formatEther(prizeAmount)
+      const { ethereum } = window;
 
-        alert(`Congrats! You just won ${amt} ether for waving. Check your wallet balance :)`);
-      }
-    })
+      const externalProvider = new ethers.providers.JsonRpcProvider(
+        `https://eth-rinkeby.alchemyapi.io/v2/${process.env.REACT_APP_ALCHEMY_KEY}`,
+        "rinkeby"
+      );
+      const waveportalContract = new ethers.Contract(contractAddress, contractABI, externalProvider);
+      
+      // Check if already connected with metamask
+      ethereum.request({ method: 'eth_accounts' })
+        .then(accounts => {
+          if(!!accounts.length) {
+            const account = accounts[0];
+            setCurrentAccount(account);
+          }
+        })      
+
+      // Initialize listeners
+
+      ethereum.on("chainChanged", (chainId) => {
+        // Only Rinkeby
+        if(chainId != 4) {
+          alert("Please switch to the Rinkeby network to use the webapp.");
+        }
+      })
+
+      ethereum.on("accountsChanged", (accounts) => {
+
+        if(accounts.length == 0) {
+          setCurrentAccount('')
+        } else {
+          const account = accounts[0];
+          setCurrentAccount(account);
+        }        
+      })
+
+      waveportalContract.on("NewWave", (waver, timestamp, message) => {
+        setAllWaves([{waver, timestamp, message}, ...allWaves]);
+      })
+  
+      waveportalContract.on("PrizeWon", (winner, prizeAmount) => {
+        if(winner == currentAccount) {
+          const amt = ethers.utils.formatEther(prizeAmount)
+  
+          alert(`Congrats! You just won ${amt} ether for waving. Check your wallet balance :)`);
+        }
+      })
+    }
 
   }, [])
 
+  // Connect to metamask
+  async function connectToMetamask() {
+    const { ethereum } = window;
+
+    if(!ethereum) {
+      alert("Please install Metamask to continue using the webapp.");
+    }
+
+    setLoading(true)
+
+    ethereum.request({ method: 'eth_requestAccounts' })
+      .then(accounts => {
+        console.log(accounts[0])
+        setLoading(false)
+      })
+      .catch(err => alert(
+        err.message
+      ));
+  }
+  
   async function sendWave() {
-    if(library && account) {
+    if(typeof window.ethereum !== undefined) {
+
+      const provider = new ethers.providers.Web3Provider(window.ethereum);
+      const waveportalContract = new ethers.Contract(contractAddress, contractABI, provider);
+
       setLoading(true);
 
       try {
 
-        const tx = await waveportalContract.connect(library.getSigner(account)).waveAtMe(waveMessage, { gasLimit: 100000 })
-        window.alert(`You can view your transaction at https://rinkeby.etherscan.io/tx/${tx.hash}`)
+        const tx = await waveportalContract.waveAtMe(waveMessage, { gasLimit: 100000 })
+        alert(`You can view your transaction at https://rinkeby.etherscan.io/tx/${tx.hash}`)
 
         await tx.wait()
 
         setWaveMessage("")
 
       } catch(err) {
-        window.alert(JSON.stringify(err))
+        alert(err.message)
       }
 
       setLoading(false)
     }
   }
 
-  const waveButtonActive = active && account
+  const waveButtonActive = !!currentAccount
   
   return (
     <div className="m-auto flex justify-center my-4" style={{maxWidth: "800px"}}>
@@ -154,9 +209,11 @@ function ContractComponent() {
         </p>
 
         <div className="m-auto">
-          {!account
+          {!currentAccount
             ? (
-              <ConnectButton />
+              <button onClick={connectToMetamask} className="border border-black">
+                Connect to Metamask
+              </button>
             )
 
             : (
