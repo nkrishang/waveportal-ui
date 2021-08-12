@@ -1,6 +1,6 @@
-# Getting Started with Create React App
+# Buildspace Ethereum: extended tutorial
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+This UI code is an extension of the code available in `main`. It uses libraries and organizes UI code, all in a way fit to use in production.
 
 ## Available Scripts
 
