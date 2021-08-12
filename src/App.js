@@ -172,7 +172,8 @@ export default function App() {
     if(typeof window.ethereum !== undefined) {
 
       const provider = new ethers.providers.Web3Provider(window.ethereum);
-      const waveportalContract = new ethers.Contract(contractAddress, contractABI, provider);
+      const signer = provider.getSigner()
+      const waveportalContract = new ethers.Contract(contractAddress, contractABI, signer);
 
       setLoading(true);
 
@@ -211,7 +212,7 @@ export default function App() {
         <div className="m-auto">
           {!currentAccount
             ? (
-              <button onClick={connectToMetamask} className="border border-black">
+              <button onClick={connectToMetamask} className="border border-black p-4">
                 Connect to Metamask
               </button>
             )
